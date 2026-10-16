@@ -105,6 +105,14 @@ h1{font-family:var(--f-display);font-weight:400;font-size:clamp(58px,19vw,112px)
 .toast .k{font-family:var(--f-mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber)}
 .toast .v{font-family:var(--f-display);font-size:clamp(20px,6vw,28px);line-height:1.2;color:#fff;margin-top:4px}
 
+/* ---------- cinématique ---------- */
+.cine{z-index:35;background:#000;padding:0;display:flex;align-items:center;justify-content:center}
+.cine video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.cine-play{position:relative;z-index:2;margin:0 16px;animation:pulse 1.4s ease-in-out infinite}
+.cine-skip,.cine-sound{position:absolute;z-index:3;height:40px;padding:0 14px;border-radius:999px;border:1px solid rgba(255,255,255,.35);
+  background:rgba(0,0,0,.45);color:#fff;font-family:var(--f-body);font-weight:600;font-size:14px;cursor:pointer}
+.cine-skip{top:calc(env(safe-area-inset-top,0px) + 10px);right:max(12px,env(safe-area-inset-right,0px))}
+.cine-sound{bottom:calc(env(safe-area-inset-bottom,0px) + 18px);left:50%;transform:translateX(-50%);height:46px;font-size:16px}
 /* ---------- écran final ---------- */
 .final{z-index:15;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .wrap{max-width:560px;margin:0 auto;padding-block:64px 48px;display:flex;flex-direction:column;gap:20px}
@@ -217,6 +225,13 @@ body.speaking .vox i{animation:vox .5s ease-in-out infinite alternate}
 </div>
 <div class="hint" id="hint" hidden>Tape sur les astéroïdes dorés pour tirer !</div>
 <div class="toast" id="toast" hidden><div class="k" id="toast-k"></div><div class="v" id="toast-v"></div></div>
+
+<section class="layer cine" id="cine" hidden>
+  <video id="vid" playsinline webkit-playsinline preload="none"></video>
+  <button class="btn solid big cine-play" id="cine-play" type="button" hidden>📡 Transmission entrante : regarder</button>
+  <button class="cine-sound" id="cine-sound" type="button" hidden>🔊 Activer le son</button>
+  <button class="cine-skip" id="cine-skip" type="button">Passer ⏭</button>
+</section>
 
 <div class="ctl" id="ctl" hidden>
   <button id="mute" type="button" aria-label="Couper le son">
@@ -669,7 +684,7 @@ function collect(r){
   G.got++; G.live=false; G.next=st+2.2; G.score+=500; shake=.5; flash=.35;
   boom(r.x,r.y,70,true); confetti(r.x,r.y,40); sBoom(true); var vk='c'+G.got; setTimeout(function(){ sFanfare(G.got===3); },150); setTimeout(function(){ if(scene==='game'||scene==='outro') say(vk); },700);
   if(!G.hinted){ G.hinted=true; $('hint').hidden=true; }
-  if(G.got===3){ G.done=true; setTimeout(startOutro,4600); }
+  if(G.got===3){ G.done=true; setTimeout(CINE?startCine:startOutro,4600); }
 }
 function drawGame(dt){
   drawFall(dt, G.done?2.6:1);
@@ -740,7 +755,42 @@ function drawFoe(x,y,s){
   g.restore();
 }
 
-/* ----- Acte 3 : saut final ----- */
+/* ----- Acte 3 : cinématique vidéo ----- */
+var CINE='hyperespace.mp4', vid=$('vid'), cineDog=null;
+function primeCine(){
+  if(!CINE||primeCine.done) return; primeCine.done=true;
+  try{ vid.src=CINE; vid.preload='auto'; vid.muted=true; var p=vid.play();
+    var d=function(){ try{ vid.pause(); vid.currentTime=0; }catch(e){} };
+    if(p&&p.then) p.then(d).catch(function(){}); else d();
+  }catch(e){}
+}
+function startCine(){
+  if(scene!=='game') return; scene='cine'; st=0;
+  ['hud','hint','toast','ctl'].forEach(function(id){ $(id).hidden=true; });
+  engOff(); hush(); flash=1; sWhoosh(1.2);
+  $('cine').hidden=false; $('cine-play').hidden=true; $('cine-sound').hidden=true;
+  if(!vid.src) vid.src=CINE;
+  if(vid.error){ endCine(); return; }
+  try{ vid.currentTime=0; }catch(e){}
+  vid.muted=muted; var p=vid.play();
+  if(p&&p.catch) p.catch(function(){
+    vid.muted=true; var p2=vid.play();
+    if(p2&&p2.then) p2.then(function(){ if(!muted) $('cine-sound').hidden=false; }).catch(function(){ if(vid.error) endCine(); else $('cine-play').hidden=false; });
+  });
+  clearTimeout(cineDog); cineDog=setTimeout(function(){ if(scene==='cine' && (vid.paused||vid.readyState<2) && $('cine-play').hidden) endCine(); },25000);
+}
+function endCine(){
+  if(scene!=='cine') return; clearTimeout(cineDog);
+  try{ vid.pause(); }catch(e){} $('cine').hidden=true; flash=1; showFinal(true);
+}
+vid.addEventListener('ended',endCine);
+vid.addEventListener('error',function(){ if(scene==='cine') endCine(); });
+$('cine-skip').addEventListener('click',endCine);
+$('cine-play').addEventListener('click',function(){ $('cine-play').hidden=true; vid.muted=muted; var p=vid.play();
+  if(p&&p.catch) p.catch(function(){ vid.muted=true; vid.play().catch(endCine); }); });
+$('cine-sound').addEventListener('click',function(){ vid.muted=false; $('cine-sound').hidden=true; });
+
+/* ----- Acte 3 bis : saut final dessiné (si pas de vidéo) ----- */
 function startOutro(){ if(scene!=='game') return; I.outF=false; scene='outro'; st=0; $('hud').hidden=true; $('hint').hidden=true; $('toast').hidden=true; wSpeed=4; wTarget=50; sWhoosh(1.6); engOff(); }
 function drawOutro(dt){
   drawWarp(dt,.5);
@@ -748,7 +798,7 @@ function drawOutro(dt){
 }
 function showFinal(party){
   scene='final'; st=0; wTarget=.6; wSpeed=Math.min(wSpeed,6); engOff();
-  ['start','cap','hud','hint','toast'].forEach(function(id){ $(id).hidden=true; });
+  ['start','cap','hud','hint','toast','cine'].forEach(function(id){ $(id).hidden=true; }); try{ vid.pause(); }catch(e){}
   $('ctl').hidden=false; $('skip').hidden=true; var fin=$('final'); fin.hidden=false; fin.scrollTop=0;
   if(party){ setTimeout(function(){ confetti(W*.25,H*.45,60); confetti(W*.75,H*.45,60); sFanfare(true); },200); setTimeout(function(){ if(scene==='final') say('fin'); },1500); }
   tick();
@@ -779,7 +829,7 @@ $('go').addEventListener('click',function(){ launch(true); });
 $('go-mute').addEventListener('click',function(){ launch(false); });
 $('skip0').addEventListener('click',function(){ showFinal(false); });
 $('skip').addEventListener('click',function(){ engOff(); hush(); showFinal(false); });
-$('takeoff').addEventListener('click',function(){ hush(); startGame(); });
+$('takeoff').addEventListener('click',function(){ hush(); primeCine(); startGame(); });
 $('mute').addEventListener('click',function(){ if(!AC) audioInit(true); else setMute(!muted); });
 $('listen').addEventListener('click',function(){ if(!AC) audioInit(true); else if(muted) setMute(false); say('fin'); });
 $('replay').addEventListener('click',function(){ hush(); if(!AC) audioInit(true); I={ev:{}}; if(REDUCE) return; startIntro(); });
